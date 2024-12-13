@@ -7,6 +7,24 @@ const GDAv1ForwarderAbi = require("@superfluid-finance/ethereum-contracts/build/
 
 const bigIntToStr = (key: string, value: any) => (typeof value === 'bigint' ? value.toString() : value);
 const log = (msg: string, lineDecorator="") => console.log(`${new Date().toISOString()} - ${lineDecorator} (Graphinator) ${msg}`);
+
+type TokenPrices = Record<string, number>;
+
+const tokenPricesAllNetworks: Record<string, TokenPrices> = {
+    "base-mainnet": {
+        // DEGENx
+        "0x1eff3dd78f4a14abfa9fa66579bd3ce9e1b30529": 0.02,
+        // ETHx
+        "0x46fd5cfb4c12d87acd3a13e92baa53240c661d93": 4000,
+        // USDCx
+        "0xd04383398dd2426297da660f9cca3d439af9ce1b": 1,
+        // cbBTCx
+        "0xdfd428908909cb5e24f5e79e6ad6bde10bdf2327": 100000,
+        // DAIx
+        "0x708169c8c87563ce904e0a7f3bfc1f3b0b767f41": 1,
+    }
+}
+
 /**
  * Graphinator is responsible for processing and liquidating flows.
  */
@@ -20,7 +38,11 @@ export default class Graphinator {
     private depositConsumedPctThreshold: number;
     private batchSize: number;
     private gasMultiplier: number;
-    private maxGasPrice: number;
+    private referenceGasPriceLimit: number;
+    private fallbackGasPriceLimit: number;
+    private minGasPriceLimit: number;
+    private tokenPrices: Record<string, number>;
+    private refGasPrice: number;
 
     /**
      * Creates an instance of Graphinator.
@@ -29,11 +51,18 @@ export default class Graphinator {
      * @param gasMultiplier - The gas multiplier for estimating gas limits.
      * @param maxGasPrice - The maximum gas price allowed.
      */
-    constructor(networkName: string, batchSize: number, gasMultiplier: number, maxGasPrice: number) {
+    constructor(networkName: string, batchSize: number, gasMultiplier: number, referenceGasPriceLimit: number, fallbackGasPriceLimit: number, minGasPriceLimit: number) {
         this.batchSize = batchSize;
         this.gasMultiplier = gasMultiplier;
-        this.maxGasPrice = maxGasPrice;
-        log(`maxGasPrice: ${maxGasPrice} (${maxGasPrice / 1000000000} gwei)`);
+        this.referenceGasPriceLimit = referenceGasPriceLimit;
+        this.fallbackGasPriceLimit = fallbackGasPriceLimit;
+        this.minGasPriceLimit = minGasPriceLimit;
+        log(`referenceGasPriceLimit: ${referenceGasPriceLimit} (${referenceGasPriceLimit / 1000000000} gwei)`);
+        log(`fallbackGasPriceLimit: ${fallbackGasPriceLimit} (${fallbackGasPriceLimit / 1000000000} gwei)`);
+        log(`minGasPriceLimit: ${minGasPriceLimit} (${minGasPriceLimit / 1000000000} gwei)`);
+        if (this.minGasPriceLimit > this.fallbackGasPriceLimit || this.minGasPriceLimit > this.referenceGasPriceLimit) {
+            throw new Error("minGasPriceLimit must be less than fallbackGasPriceLimit and less than referenceGasPriceLimit");
+        }
 
         const network = sfMeta.getNetworkByName(networkName);
         if (network === undefined) {
@@ -63,6 +92,13 @@ export default class Graphinator {
             ? Number(import.meta.env.DEPOSIT_CONSUMED_PCT_THRESHOLD)
             : 20;
         log(`Will liquidate outflows of accounts with more than ${this.depositConsumedPctThreshold}% of the deposit consumed`);
+
+        this.tokenPrices = tokenPricesAllNetworks[networkName] || {};
+        log(`Token prices: ${JSON.stringify(this.tokenPrices, null, 2)}`);
+
+        // default: 0.011 gwei
+        this.refGasPrice = process.env.REF_GAS_PRICE_MWEI ? Number(process.env.REF_GAS_PRICE_MWEI) * 1000000 : 11000000;
+        log(`Ref gas price: ${this.refGasPrice / 1000000000} gwei`);
     }
 
     // If no token is provided: first get a list of all tokens.
@@ -78,14 +114,50 @@ export default class Graphinator {
             const flowsToLiquidate = await this.dataFetcher.getFlowsToLiquidate(tokenAddr, this.gdaForwarder, this.depositConsumedPctThreshold);
             if (flowsToLiquidate.length > 0) {
                 log(`Found ${flowsToLiquidate.length} flows to liquidate`);
-                const chunks = this._chunkArray(flowsToLiquidate, this.batchSize);
+
+                // now we calculate the max gas price per flow and filter out those above the current gas price
+                const currentGasPrice = Number((await this.provider.getFeeData()).gasPrice);
+                if (!currentGasPrice) {
+                    throw new Error("Current gas price not found");
+                }
+                log(`Current network gas price: ${currentGasPrice / 1e9} gwei`);
+
+                const flowsWorthLiquidating = flowsToLiquidate.filter(flow => this._calculateMaxGasPrice(flow) >= currentGasPrice);
+                log(`${flowsWorthLiquidating.length} flows with max gas price in range`);
+
+                // now sort the flows by max gas price descending
+                flowsWorthLiquidating.sort((a, b) => this._calculateMaxGasPrice(b) - this._calculateMaxGasPrice(a));
+                log(`Sorted flows by max gas price descending`);
+
+                const chunks = this._chunkArray(flowsWorthLiquidating, this.batchSize);
                 for (const chunk of chunks) {
-                    await this.batchLiquidateFlows(tokenAddr, chunk);
+                    // leave some margin to avoid getting stuck if the gas price is ticking up
+                    await this.batchLiquidateFlows(tokenAddr, chunk, Math.floor(currentGasPrice * 1.2));
                 }
             } else {
                 log(`No critical accounts for token: ${tokenAddr}`);
             }
         }
+    }
+
+
+    _calculateMaxGasPrice(flow: Flow): number {
+        console.log("flow.token", flow.token);
+        const tokenPrice = this.tokenPrices[flow.token];
+        console.log("tokenPrice", tokenPrice);
+
+        const flowrate = Number(flow.flowrate);
+
+        // refMaxGasPrice: the max gas price for 1$ worth of daily flowrate.
+        // REF_GAS_PRICE_MWEI MUST be defined!
+        const refDailyNFR = 1e18;
+        //console.log("refDailyNFR", refDailyNFR);
+        console.log("flow.flowrate", flowrate);
+        const dailyNFR = tokenPrice ? Math.round(flowrate * 86400 * tokenPrice) : undefined;
+        console.log(`dailyNFR: ${dailyNFR / 1e18}$`);
+        const maxGasPrice = dailyNFR ? Math.max(this.minGasPriceLimit, Math.round(dailyNFR * this.referenceGasPriceLimit / refDailyNFR)) : this.fallbackGasPriceLimit;
+        console.log(`maxGasPrice: ${maxGasPrice / 1e9} gwei`);
+        return maxGasPrice;
     }
 
     // Liquidate all flows in one batch transaction.
@@ -96,33 +168,27 @@ export default class Graphinator {
      * @param token - The address of the token.
      * @param flows - The array of flows to liquidate.
      */
-    private async batchLiquidateFlows(token: AddressLike, flows: Flow[]): Promise<void> {
+    private async batchLiquidateFlows(token: AddressLike, flows: Flow[], maxGasPrice: number): Promise<void> {
         try {
             const txData = await this._generateBatchLiquidationTxData(token, flows);
             const gasLimit = await this._estimateGasLimit(txData);
-            const initialGasPrice = (await this.provider.getFeeData()).gasPrice;
 
-            if (initialGasPrice && initialGasPrice <= this.maxGasPrice) {
-                const tx = {
-                    to: txData.to,
-                    data: txData.data,
-                    gasLimit,
-                    gasPrice: initialGasPrice,
-                    chainId: (await this.provider.getNetwork()).chainId,
-                    nonce: await this.provider.getTransactionCount(this.wallet.address),
-                };
+            const tx = {
+                to: txData.to,
+                data: txData.data,
+                gasLimit,
+                gasPrice: maxGasPrice,
+                chainId: (await this.provider.getNetwork()).chainId,
+                nonce: await this.provider.getTransactionCount(this.wallet.address),
+            };
 
-                if (process.env.DRY_RUN) {
-                    log(`Dry run - tx: ${JSON.stringify(tx, bigIntToStr)}`);
-                } else {
-                    const signedTx = await this.wallet.signTransaction(tx);
-                    const transactionResponse = await this.provider.broadcastTransaction(signedTx);
-                    const receipt = await transactionResponse.wait();
-                    log(`Transaction successful: ${receipt?.hash}`);
-                }
+            if (process.env.DRY_RUN) {
+                log(`Dry run - tx: ${JSON.stringify(tx, bigIntToStr)}`);
             } else {
-                log(`Gas price ${initialGasPrice} too high, skipping transaction`);
-                await this._sleep(1000);
+                const signedTx = await this.wallet.signTransaction(tx);
+                const transactionResponse = await this.provider.broadcastTransaction(signedTx);
+                const receipt = await transactionResponse.wait();
+                log(`Transaction successful: ${receipt?.hash}`);
             }
         } catch (error) {
             console.error(`(Graphinator) Error processing chunk: ${error}`);

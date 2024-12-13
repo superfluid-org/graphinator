@@ -42,6 +42,10 @@ class DataFetcher {
 
         if (criticalAccounts.length > 0) {
             for (const account of criticalAccounts) {
+                // ONLY_ACCOUNT is just for testing
+                if (process.env.ONLY_ACCOUNT && account.account.id !== process.env.ONLY_ACCOUNT) {
+                    continue;
+                }
                 log(`? Probing ${account.account.id} token ${account.token.id} net fr ${account.totalNetFlowRate} cfa net fr ${account.totalCFANetFlowRate} gda net fr ${await gdaForwarder.getNetFlow(account.token.id, account.account.id)}`);
                 const rtb = await targetToken.realtimeBalanceOfNow(account.account.id);
                 const { availableBalance, deposit } = rtb;
@@ -72,7 +76,7 @@ class DataFetcher {
                         });
                         netFlowRate += BigInt(flow.currentFlowRate);
                         processedCFAFlows++;
-                        if (netFlowRate >= ZERO) {
+                        if (!process.env.LIQUIDATE_ALL && netFlowRate >= ZERO) {
                             break;
                         }
                     }
@@ -91,7 +95,7 @@ class DataFetcher {
                         });
                         netFlowRate += BigInt(flow.pool.flowRate);
                         processedGDAFlows++;
-                        if (netFlowRate >= BigInt(0)) {
+                        if (!process.env.LIQUIDATE_ALL && netFlowRate >= BigInt(0)) {
                             break;
                         }
                     }
