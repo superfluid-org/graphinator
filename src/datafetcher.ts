@@ -37,15 +37,17 @@ class DataFetcher {
     async getFlowsToLiquidate(token: AddressLike, gdaForwarder: Contract, depositConsumedPctThreshold: number): Promise<Flow[]> {
 
         const returnData: Flow[] = [];
-        const criticalAccounts = await this.getCriticalAccountsByTokenNow(token);
+        const criticalAccounts = await this.getCriticalAccountsByTokenNow(token, process.env.LIQUIDATE_ALL ? false : true);
         const targetToken = new Contract(token.toString(), ISuperTokenAbi, this.provider);
 
         if (criticalAccounts.length > 0) {
+            console.log(`Found ${criticalAccounts.length} maybe-critical accounts`);
             for (const account of criticalAccounts) {
                 // ONLY_ACCOUNT is just for testing
                 if (process.env.ONLY_ACCOUNT && account.account.id !== process.env.ONLY_ACCOUNT) {
                     continue;
                 }
+                // TODO: totalNetFlowrate seems to only be CFA.
                 log(`? Probing ${account.account.id} token ${account.token.id} net fr ${account.totalNetFlowRate} cfa net fr ${account.totalCFANetFlowRate} gda net fr ${await gdaForwarder.getNetFlow(account.token.id, account.account.id)}`);
                 const rtb = await targetToken.realtimeBalanceOfNow(account.account.id);
                 const { availableBalance, deposit } = rtb;
@@ -58,7 +60,7 @@ class DataFetcher {
                     const cfaNetFlowRate = BigInt(account.totalCFANetFlowRate);
                     const gdaNetFlowRate = await gdaForwarder.getNetFlow(account.token.id, account.account.id);
                     let netFlowRate = cfaNetFlowRate + gdaNetFlowRate;
-                    if (netFlowRate >= ZERO) {
+                    if (!process.env.LIQUIDATE_ALL && netFlowRate >= ZERO) {
                         continue;
                     }
                     log(`! Critical ${account.account.id} token ${account.token.id} net fr ${netFlowRate} (cfa ${cfaNetFlowRate} gda ${gdaNetFlowRate})`);
@@ -171,7 +173,8 @@ class DataFetcher {
      * @param token - The address of the token.
      * @returns A promise that resolves to an array of critical accounts.
      */
-    async getCriticalAccountsByTokenNow(token: AddressLike): Promise<CriticalAccount[]> {
+    async getCriticalAccountsByTokenNow(token: AddressLike, onlyNegativeNetFlowrate: boolean = true): Promise<CriticalAccount[]> {
+        console.log(`Getting critical accounts for token ${token} with onlyNegativeNetFlowrate ${onlyNegativeNetFlowrate}`);
         const _tokenLowerCase = token.toString().toLowerCase();
         const timestamp = Math.floor(Date.now() / 1000);
         return this._queryAllPages(
@@ -179,7 +182,7 @@ class DataFetcher {
                 accountTokenSnapshots (first: ${MAX_ITEMS},
                     where: {
                         id_gt: "${lastId}",
-                        totalNetFlowRate_lt: 0,
+                        ${onlyNegativeNetFlowrate ? 'totalNetFlowRate_lt: 0,' : ''}
                         maybeCriticalAtTimestamp_lt: ${timestamp}
                         token: "${_tokenLowerCase}"
                     }
