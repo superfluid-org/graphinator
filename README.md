@@ -55,6 +55,8 @@ In case we won't those liquidated anyway, setting this value to a value which is
 
 Limitation: the current implementation does not take into account the min deposit setting of a token.
 
+Token prices are taken from `data/token_prices.json` which can be updated running `bun utils/update-token-prices.js` (you need to provide an env var `COINGECKO_API_KEY`). This prices don't need to be very accurate thus don't need frequent updating.
+
 ## License
 
 [MIT](https://choosealicense.com/licenses/mit/)

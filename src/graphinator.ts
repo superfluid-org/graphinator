@@ -5,25 +5,11 @@ import sfMeta from "@superfluid-finance/metadata";
 const BatchLiquidatorAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/BatchLiquidator.sol/BatchLiquidator.json").abi;
 const GDAv1ForwarderAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/GDAv1Forwarder.sol/GDAv1Forwarder.json").abi;  
 
+const tokenPricesAllNetworks = require("../data/token_prices.json") || undefined;
+
 const bigIntToStr = (key: string, value: any) => (typeof value === 'bigint' ? value.toString() : value);
 const log = (msg: string, lineDecorator="") => console.log(`${new Date().toISOString()} - ${lineDecorator} (Graphinator) ${msg}`);
 
-type TokenPrices = Record<string, number>;
-
-const tokenPricesAllNetworks: Record<string, TokenPrices> = {
-    "base-mainnet": {
-        // DEGENx
-        "0x1eff3dd78f4a14abfa9fa66579bd3ce9e1b30529": 0.02,
-        // ETHx
-        "0x46fd5cfb4c12d87acd3a13e92baa53240c661d93": 4000,
-        // USDCx
-        "0xd04383398dd2426297da660f9cca3d439af9ce1b": 1,
-        // cbBTCx
-        "0xdfd428908909cb5e24f5e79e6ad6bde10bdf2327": 100000,
-        // DAIx
-        "0x708169c8c87563ce904e0a7f3bfc1f3b0b767f41": 1,
-    }
-}
 
 /**
  * Graphinator is responsible for processing and liquidating flows.
@@ -94,7 +80,7 @@ export default class Graphinator {
         log(`Will liquidate outflows of accounts with more than ${this.depositConsumedPctThreshold}% of the deposit consumed`);
 
         this.tokenPrices = tokenPricesAllNetworks[networkName] || {};
-        log(`Token prices: ${JSON.stringify(this.tokenPrices, null, 2)}`);
+        log(`Loaded ${Object.keys(this.tokenPrices).length} token prices`);
 
         // default: 0.011 gwei
         this.refGasPrice = process.env.REF_GAS_PRICE_MWEI ? Number(process.env.REF_GAS_PRICE_MWEI) * 1000000 : 11000000;
@@ -140,23 +126,20 @@ export default class Graphinator {
         }
     }
 
-
+    /*
+     * Calculate the max gas price we're willed to bid for liquidating this flow,
+     * taking into account the normalized (deniminated in the same unit of account) flowrate, the reference gas price limit
+     * (representing our limit for a normalized flowrate of 1 token per day)
+     * amd the minimum gas price limit (which avoids dust flows to exist in perpetuity).
+     * If the token price is not known, the fallback limit is returned.
+     */
     _calculateMaxGasPrice(flow: Flow): number {
-        console.log("flow.token", flow.token);
         const tokenPrice = this.tokenPrices[flow.token];
-        console.log("tokenPrice", tokenPrice);
-
         const flowrate = Number(flow.flowrate);
 
-        // refMaxGasPrice: the max gas price for 1$ worth of daily flowrate.
-        // REF_GAS_PRICE_MWEI MUST be defined!
         const refDailyNFR = 1e18;
-        //console.log("refDailyNFR", refDailyNFR);
-        console.log("flow.flowrate", flowrate);
         const dailyNFR = tokenPrice ? Math.round(flowrate * 86400 * tokenPrice) : undefined;
-        console.log(`dailyNFR: ${dailyNFR / 1e18}$`);
         const maxGasPrice = dailyNFR ? Math.max(this.minGasPriceLimit, Math.round(dailyNFR * this.referenceGasPriceLimit / refDailyNFR)) : this.fallbackGasPriceLimit;
-        console.log(`maxGasPrice: ${maxGasPrice / 1e9} gwei`);
         return maxGasPrice;
     }
 
