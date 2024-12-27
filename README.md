@@ -38,6 +38,25 @@ Make sure `grt.ts` is executable.
 
 See `./grt.ts --help` for more config options.
 
+## Gas price strategy
+
+Graphinator can be configured to make sound decisions despite gas price swings, with the following priorities:
+- don't let high-value flows slip through
+- don't let gas price spikes drain the sender account
+- don't let dust flows open forever
+
+This is achieved by using 3 configuration parameters:
+- _reference gas price limit_: this is the limit which should be applied to a reference flow with a flowrate worth 1$ per day. For all flows with known value (meaning, the token price is known to the application) the limit is set proportionally to this reference value.
+E.g. if this limit were set to 1 gwei and a flow worth 1000 $/day were critical, graphinator would bid up to 1000 gwei in order to liquidate it.
+This proportionality makes sure that an attacker couldn't take advantage of gas price spikes with a times insolvency.
+- _fallback gas price limit_: if the token price and thus the value of the flow isn't known, this limit is applied. It will usually be set higher than the reference limit, but still low enough to not risk the account being drained for likely not very urgent liquidations (assuming it's mostly less important tokens we don't know the price for).
+- _minimum gas price limit_: since most tokens don't have a minimum deposit set, there can be a lot of "dust streams" out there which are never really worth liquidating.
+In case we won't those liquidated anyway, setting this value to a value which is at least occasionally above the chain's gas price makes sure those flows don't linger on insolvent forever.
+
+Limitation: the current implementation does not take into account the min deposit setting of a token.
+
+Token prices are taken from `data/token_prices.json` which can be updated running `bun utils/update-token-prices.js` (you need to provide an env var `COINGECKO_API_KEY`). This prices don't need to be very accurate thus don't need frequent updating.
+
 ## License
 
 [MIT](https://choosealicense.com/licenses/mit/)

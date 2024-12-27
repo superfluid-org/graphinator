@@ -35,11 +35,23 @@ const argv = await yargs(hideBin(process.argv))
         description: 'Address of the Super Token to process. If not set, all "listed" (curated) Super Tokens will be processed',
         default: process.env.TOKEN
     })
-    .option('maxGasPriceMwei', {
+    .option('referenceGasPriceLimitMwei', {
+        alias: 'r',
+        type: 'number',
+        description: 'Set the reference gas price limit in mwei (milli wei) - limit which should be applied to a flow with a daily flowrate worth 1$. Default: 1000 (1 gwei)',
+        default: process.env.REFERENCE_GAS_PRICE_LIMIT_MWEI ? parseInt(process.env.REFERENCE_GAS_PRICE_LIMIT_MWEI) : 1000
+    })
+    .option('fallbackGasPriceLimitMwei', {
+        alias: 'f',
+        type: 'number',
+        description: 'Set the fallback gas price limit in mwei (milli wei) - used for flows with unknown token price. Default: 10 x referenceGasPriceLimit',
+        default: process.env.FALLBACK_GAS_PRICE_LIMIT_MWEI ? parseInt(process.env.FALLBACK_GAS_PRICE_LIMIT_MWEI) : undefined
+    })
+    .option('minGasPriceLimitMwei', {
         alias: 'm',
         type: 'number',
-        description: 'Set the max gas price in mwei (milli wei). Default: 10000 (10 gwei)',
-        default: process.env.MAX_GAS_PRICE_MWEI ? parseInt(process.env.MAX_GAS_PRICE_MWEI) : 10000
+        description: 'Set the minimum gas price limit in mwei (milli wei) - used to prevent dust streams to persist forever. Default: 0.1 x referenceGasPriceLimit',
+        default: process.env.MIN_GAS_PRICE_LIMIT_MWEI ? parseInt(process.env.MIN_GAS_PRICE_LIMIT_MWEI) : undefined
     })
     .option('gasMultiplier', {
         alias: 'g',
@@ -67,9 +79,11 @@ const batchSize = argv.batchSize;
 const gasMultiplier = argv.gasMultiplier;
 const token = argv.token;
 const loop = argv.loop;
-const maxGasPrice = argv.maxGasPriceMwei * 1000000;
+const referenceGasPriceLimit = argv.referenceGasPriceLimitMwei * 1000000;
+const fallbackGasPriceLimit = argv.fallbackGasPriceLimitMwei ? argv.fallbackGasPriceLimitMwei * 1000000 : referenceGasPriceLimit * 10;
+const minGasPriceLimit = argv.minGasPriceLimitMwei ? argv.minGasPriceLimitMwei * 1000000 : referenceGasPriceLimit * 0.1;
 
-const ghr = new Graphinator(network, batchSize, gasMultiplier, maxGasPrice);
+const ghr = new Graphinator(network, batchSize, gasMultiplier, referenceGasPriceLimit, fallbackGasPriceLimit, minGasPriceLimit);
 if(loop) {
     const executeLiquidations = async () => {
         try {
