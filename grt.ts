@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
 import dotenv from "dotenv";
-
+import path from "path";
+import fs from "fs";
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import Graphinator from './src/graphinator';
@@ -9,8 +10,21 @@ import Graphinator from './src/graphinator';
 
 const log = (msg: string, lineDecorator="") => console.log(`${new Date().toISOString()} - ${lineDecorator} (Graphinator) ${msg}`);
 
-
+// Load default .env first
 dotenv.config();
+
+// Parse network parameter first, before full argument parsing
+const networkArg = process.argv.find((arg) => arg.startsWith('--network=') || arg === '--network');
+const networkParam = networkArg ? 
+    networkArg.startsWith('--network=') ? 
+        networkArg.split('=')[1] : 
+        process.argv[process.argv.indexOf(networkArg) + 1]
+    : process.env.NETWORK;
+
+// Load network-specific .env if network is specified
+if (networkParam && fs.existsSync(path.resolve(__dirname, `.env_${networkParam}`))) {
+    dotenv.config({ path: path.resolve(__dirname, `.env_${networkParam}`) });
+}
 
 const argv = await yargs(hideBin(process.argv))
     .option('network', {
