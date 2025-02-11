@@ -28,7 +28,6 @@ if (networkParam && fs.existsSync(path.resolve(__dirname, `.env_${networkParam}`
 
 const argv = await yargs(hideBin(process.argv))
     .option('network', {
-        alias: 'n',
         type: 'string',
         description: 'Set the network',
         demandOption: true,
