@@ -52,8 +52,9 @@ class DataFetcher {
                 const rtb = await targetToken.realtimeBalanceOfNow(account.account.id);
                 const { availableBalance, deposit } = rtb;
                 if (availableBalance < 0) { // critical or insolvent
-                    const consumedDepositPercentage = -Number(availableBalance * 100n / deposit);
-                    if (consumedDepositPercentage < depositConsumedPctThreshold) {
+                    // no deposit means there's no outflow, thus nothing to be liquidated
+                    const consumedDepositPercentage = deposit === 0n ? undefined : -Number(availableBalance * 100n / deposit);
+                    if (!consumedDepositPercentage || consumedDepositPercentage < depositConsumedPctThreshold) {
                         continue;
                     }
 
@@ -181,10 +182,12 @@ class DataFetcher {
             (lastId: string) => `{
                 accountTokenSnapshots (first: ${MAX_ITEMS},
                     where: {
-                        id_gt: "${lastId}",
-                        ${onlyNegativeNetFlowrate ? 'totalNetFlowRate_lt: 0,' : ''}
-                        maybeCriticalAtTimestamp_lt: ${timestamp}
-                        token: "${_tokenLowerCase}"
+                        and: [
+                            {id_gt: "${lastId}"},
+                            ${onlyNegativeNetFlowrate ? '{totalNetFlowRate_lt: 0,},' : ''}
+                            {token: "${_tokenLowerCase}"},
+                            {or: [{maybeCriticalAtTimestamp_lt: "${timestamp}"}, {balanceUntilUpdatedAt_lt: "0"}]}
+                        ]
                     }
                 ) {
                     id
@@ -214,9 +217,10 @@ class DataFetcher {
             (lastId: string) => `{
                 accountTokenSnapshots (first: ${MAX_ITEMS},
                     where: {
-                        id_gt: "${lastId}",
-                        totalNetFlowRate_lt: 0,
-                        maybeCriticalAtTimestamp_lt: ${timestamp}
+                        and: [
+                            {id_gt: "${lastId}"},
+                            {or: [{maybeCriticalAtTimestamp_lt: "${timestamp}"}, {balanceUntilUpdatedAt_lt: "0"}]}
+                        ]
                     }
                 ){
                     id
