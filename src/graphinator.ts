@@ -28,7 +28,6 @@ export default class Graphinator {
     private fallbackGasPriceLimit: number;
     private minGasPriceLimit: number;
     private tokenPrices: Record<string, number>;
-    private refGasPrice: number;
 
     /**
      * Creates an instance of Graphinator.
@@ -81,10 +80,6 @@ export default class Graphinator {
 
         this.tokenPrices = tokenPricesAllNetworks[networkName] || {};
         log(`Loaded ${Object.keys(this.tokenPrices).length} token prices`);
-
-        // default: 0.011 gwei
-        this.refGasPrice = process.env.REF_GAS_PRICE_MWEI ? Number(process.env.REF_GAS_PRICE_MWEI) * 1000000 : 11000000;
-        log(`Ref gas price: ${this.refGasPrice / 1000000000} gwei`);
     }
 
     // If no token is provided: first get a list of all tokens.
