@@ -44,4 +44,4 @@ jobs:
       - name: Run Graphinator
         env:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-        run: bun grt.ts -n ${{ github.event.inputs.network }}
+        run: bun grt.ts --network=${{ github.event.inputs.network }}
