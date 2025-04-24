@@ -186,7 +186,13 @@ class DataFetcher {
                             {id_gt: "${lastId}"},
                             ${onlyNegativeNetFlowrate ? '{totalNetFlowRate_lt: 0,},' : ''}
                             {token: "${_tokenLowerCase}"},
-                            {or: [{maybeCriticalAtTimestamp_lt: "${timestamp}"}, {balanceUntilUpdatedAt_lt: "0"}]}
+                            {or: [
+                                {maybeCriticalAtTimestamp_lt: "${timestamp}"},
+                                {and: [
+                                    {balanceUntilUpdatedAt_lte: "0"},
+                                    {activeOutgoingStreamCount_gt: 0}
+                                ]}
+                            ]}
                         ]
                     }
                 ) {
@@ -207,38 +213,6 @@ class DataFetcher {
         );
     }
 
-    /**
-     * Fetches critical accounts at a specific timestamp.
-     * @param timestamp - The timestamp to fetch critical accounts at.
-     * @returns A promise that resolves to an array of critical accounts.
-     */
-    async getCriticalAccountsAt(timestamp: number): Promise<CriticalAccount[]> {
-        return this._queryAllPages(
-            (lastId: string) => `{
-                accountTokenSnapshots (first: ${MAX_ITEMS},
-                    where: {
-                        and: [
-                            {id_gt: "${lastId}"},
-                            {or: [{maybeCriticalAtTimestamp_lt: "${timestamp}"}, {balanceUntilUpdatedAt_lt: "0"}]}
-                        ]
-                    }
-                ){
-                    id
-                    totalNetFlowRate
-                    totalCFANetFlowRate
-                    token {
-                        id
-                        symbol
-                    }
-                    account {
-                        id
-                    }
-                }
-            }`,
-            res => res.data.data.accountTokenSnapshots,
-            i => i
-        );
-    }
     /**
      * Fetches all super tokens.
      * @param isListed - Whether to fetch listed tokens or not.
