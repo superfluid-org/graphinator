@@ -33,15 +33,6 @@ const argv = await yargs(hideBin(process.argv))
         demandOption: true,
         default: process.env.NETWORK
     })
-    /*
-    Note: there's currently no scientific way to determine a safe batch size.
-    That's because the gas consumed by an individual flow's liquidation can vary widely, 
-    especially if SuperApp callbacks are involved.
-    The safe and default choice is thus 1.
-    Most of the time considerably higher values (e.g. 10) will work and may be used.
-    But since the logic is currently such that a failing batch could stall any progress,
-    setting this differently should be a conscious choice.
-    */
     .option('token', {
         alias: 't',
         type: 'string',
@@ -72,6 +63,15 @@ const argv = await yargs(hideBin(process.argv))
         description: 'Set the gas multiplier - allows to define the gas limit margin set on top of the estimation',
         default: process.env.GAS_MULTIPLIER ? parseFloat(process.env.GAS_MULTIPLIER) : 1.2
     })
+    /*
+    Note: there's currently no scientific way to determine a safe batch size.
+    That's because the gas consumed by an individual flow's liquidation can vary widely, 
+    especially if SuperApp callbacks are involved.
+    The safe and default choice is thus 1.
+    Most of the time considerably higher values (e.g. 10) will work and may be used.
+    But since the logic is currently such that a failing batch could stall any progress,
+    setting this differently should be a conscious choice.
+    */
     .option('batchSize', {
         alias: 'b',
         type: 'number',
@@ -84,6 +84,11 @@ const argv = await yargs(hideBin(process.argv))
         description: 'Set to true to loop forever, false to run once.',
         default: process.env.LOOP === 'true'
     })
+    .option('isListed', {
+        type: 'boolean',
+        description: 'Set to true to process listed tokens, false to process unlisted tokens.',
+        default: process.env.IS_LISTED !== 'false'
+    })
     .parse();
 
 const runAgainIn = 30000 //15 * 60 * 1000;
@@ -95,8 +100,9 @@ const loop = argv.loop;
 const referenceGasPriceLimit = argv.referenceGasPriceLimitMwei * 1000000;
 const fallbackGasPriceLimit = argv.fallbackGasPriceLimitMwei ? argv.fallbackGasPriceLimitMwei * 1000000 : referenceGasPriceLimit * 10;
 const minGasPriceLimit = argv.minGasPriceLimitMwei ? argv.minGasPriceLimitMwei * 1000000 : referenceGasPriceLimit * 0.1;
+const isListed = argv.isListed;
 
-const ghr = new Graphinator(network, batchSize, gasMultiplier, referenceGasPriceLimit, fallbackGasPriceLimit, minGasPriceLimit);
+const ghr = new Graphinator(network, batchSize, gasMultiplier, referenceGasPriceLimit, fallbackGasPriceLimit, minGasPriceLimit, isListed);
 if(loop) {
     const executeLiquidations = async () => {
         try {

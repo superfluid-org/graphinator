@@ -3,7 +3,7 @@ import DataFetcher from "./datafetcher.ts";
 import type {Flow} from "./types/types.ts";
 import sfMeta from "@superfluid-finance/metadata";
 const BatchLiquidatorAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/BatchLiquidator.sol/BatchLiquidator.json").abi;
-const GDAv1ForwarderAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/GDAv1Forwarder.sol/GDAv1Forwarder.json").abi;  
+const GDAv1ForwarderAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/GDAv1Forwarder.sol/GDAv1Forwarder.json").abi;
 
 const tokenPricesAllNetworks = require("../data/token_prices.json") || undefined;
 
@@ -27,6 +27,7 @@ export default class Graphinator {
     private referenceGasPriceLimit: number;
     private fallbackGasPriceLimit: number;
     private minGasPriceLimit: number;
+    private isListed: boolean;
     private tokenPrices: Record<string, number>;
 
     /**
@@ -36,12 +37,13 @@ export default class Graphinator {
      * @param gasMultiplier - The gas multiplier for estimating gas limits.
      * @param maxGasPrice - The maximum gas price allowed.
      */
-    constructor(networkName: string, batchSize: number, gasMultiplier: number, referenceGasPriceLimit: number, fallbackGasPriceLimit: number, minGasPriceLimit: number) {
+    constructor(networkName: string, batchSize: number, gasMultiplier: number, referenceGasPriceLimit: number, fallbackGasPriceLimit: number, minGasPriceLimit: number, isListed: boolean) {
         this.batchSize = batchSize;
         this.gasMultiplier = gasMultiplier;
         this.referenceGasPriceLimit = referenceGasPriceLimit;
         this.fallbackGasPriceLimit = fallbackGasPriceLimit;
         this.minGasPriceLimit = minGasPriceLimit;
+        this.isListed = isListed;
         log(`referenceGasPriceLimit: ${referenceGasPriceLimit} (${referenceGasPriceLimit / 1000000000} gwei)`);
         log(`fallbackGasPriceLimit: ${fallbackGasPriceLimit} (${fallbackGasPriceLimit / 1000000000} gwei)`);
         log(`minGasPriceLimit: ${minGasPriceLimit} (${minGasPriceLimit / 1000000000} gwei)`);
@@ -90,7 +92,8 @@ export default class Graphinator {
      * @param token - The address of the token to process. If not provided, all tokens will be processed.
      */
     async processAll(token?: AddressLike): Promise<void> {
-        const tokenAddrs = token ? [token] : await this._getSuperTokens();
+        const tokenAddrs = token ? [token] : await this._getSuperTokens(this.isListed);
+        console.log(`Processing ${tokenAddrs.length} tokens, isListed: ${this.isListed ? "true" : "false"}`);
         for (const tokenAddr of tokenAddrs) {
             const flowsToLiquidate = await this.dataFetcher.getFlowsToLiquidate(tokenAddr, this.gdaForwarder, this.depositConsumedPctThreshold);
             if (flowsToLiquidate.length > 0) {
@@ -177,8 +180,8 @@ export default class Graphinator {
      * Fetches all super tokens.
      * @returns A promise that resolves to an array of super token addresses.
      */
-    private async _getSuperTokens(): Promise<AddressLike[]> {
-        return (await this.dataFetcher.getSuperTokens())
+    private async _getSuperTokens(isListed: boolean): Promise<AddressLike[]> {
+        return (await this.dataFetcher.getSuperTokens(isListed))
                 .map(token => token.id);
     }
 

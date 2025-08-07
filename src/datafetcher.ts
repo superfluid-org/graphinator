@@ -215,13 +215,13 @@ class DataFetcher {
 
     /**
      * Fetches all super tokens.
-     * @param isListed - Whether to fetch listed tokens or not.
+     * @param isListed - Whether to process listed or unlisted tokens.
      * @returns A promise that resolves to an array of super tokens.
      */
     async getSuperTokens(isListed: boolean = true): Promise<any[]> {
         return this._queryAllPages(
             (lastId: string) => `{
-                tokens(first: ${MAX_ITEMS}, where: {id_gt: "${lastId}", isListed: ${isListed}}) {
+                tokens(first: ${MAX_ITEMS}, where: {id_gt: "${lastId}" isListed: ${isListed}}) {
                     isListed
                     isNativeAssetSuperToken
                     isSuperToken
