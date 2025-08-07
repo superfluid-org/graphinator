@@ -41,7 +41,7 @@ class DataFetcher {
         const targetToken = new Contract(token.toString(), ISuperTokenAbi, this.provider);
 
         if (criticalAccounts.length > 0) {
-            console.log(`Found ${criticalAccounts.length} maybe-critical accounts`);
+            log(`Found ${criticalAccounts.length} maybe-critical accounts`);
             for (const account of criticalAccounts) {
                 // ONLY_ACCOUNT is just for testing
                 if (process.env.ONLY_ACCOUNT && account.account.id !== process.env.ONLY_ACCOUNT) {
@@ -175,7 +175,7 @@ class DataFetcher {
      * @returns A promise that resolves to an array of critical accounts.
      */
     async getCriticalAccountsByTokenNow(token: AddressLike, onlyNegativeNetFlowrate: boolean = true): Promise<CriticalAccount[]> {
-        console.log(`Getting critical accounts for token ${token} with onlyNegativeNetFlowrate ${onlyNegativeNetFlowrate}`);
+        log(`Getting critical accounts for token ${token} with onlyNegativeNetFlowrate ${onlyNegativeNetFlowrate}`);
         const _tokenLowerCase = token.toString().toLowerCase();
         const timestamp = Math.floor(Date.now() / 1000);
         return this._queryAllPages(

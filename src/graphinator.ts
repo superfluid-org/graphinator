@@ -93,7 +93,7 @@ export default class Graphinator {
      */
     async processAll(token?: AddressLike): Promise<void> {
         const tokenAddrs = token ? [token] : await this._getSuperTokens(this.isListed);
-        console.log(`Processing ${tokenAddrs.length} tokens, isListed: ${this.isListed ? "true" : "false"}`);
+        log(`Processing ${tokenAddrs.length} tokens, isListed: ${this.isListed ? "true" : "false"}`);
         for (const tokenAddr of tokenAddrs) {
             const flowsToLiquidate = await this.dataFetcher.getFlowsToLiquidate(tokenAddr, this.gdaForwarder, this.depositConsumedPctThreshold);
             if (flowsToLiquidate.length > 0) {
