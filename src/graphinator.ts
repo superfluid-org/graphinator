@@ -1,6 +1,6 @@
-import {type AddressLike, ethers, type TransactionLike} from "ethers";
+import { type AddressLike, ethers, type TransactionLike } from "ethers";
 import DataFetcher from "./datafetcher.ts";
-import type {Flow} from "./types/types.ts";
+import type { Flow } from "./types/types.ts";
 import sfMeta from "@superfluid-finance/metadata";
 const BatchLiquidatorAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/BatchLiquidator.sol/BatchLiquidator.json").abi;
 const GDAv1ForwarderAbi = require("@superfluid-finance/ethereum-contracts/build/hardhat/contracts/utils/GDAv1Forwarder.sol/GDAv1Forwarder.json").abi;
@@ -8,7 +8,7 @@ const GDAv1ForwarderAbi = require("@superfluid-finance/ethereum-contracts/build/
 const tokenPricesAllNetworks = require("../data/token_prices.json") || undefined;
 
 const bigIntToStr = (key: string, value: any) => (typeof value === 'bigint' ? value.toString() : value);
-const log = (msg: string, lineDecorator="") => console.log(`${new Date().toISOString()} - ${lineDecorator} (Graphinator) ${msg}`);
+const log = (msg: string, lineDecorator = "") => console.log(`${new Date().toISOString()} - ${lineDecorator} (Graphinator) ${msg}`);
 
 
 /**
@@ -92,7 +92,13 @@ export default class Graphinator {
      * @param token - The address of the token to process. If not provided, all tokens will be processed.
      */
     async processAll(token?: AddressLike): Promise<void> {
-        const tokenAddrs = token ? [token] : await this._getSuperTokens(this.isListed);
+        let tokenAddrs: string[];
+        if (token) {
+            const resolved = await ethers.resolveAddress(token, this.provider);
+            tokenAddrs = [resolved.toLowerCase()];
+        } else {
+            tokenAddrs = await this._getSuperTokens(this.isListed);
+        }
         log(`Processing ${tokenAddrs.length} tokens, isListed: ${this.isListed ? "true" : "false"}`);
         for (const tokenAddr of tokenAddrs) {
             const flowsToLiquidate = await this.dataFetcher.getFlowsToLiquidate(tokenAddr, this.gdaForwarder, this.depositConsumedPctThreshold);
@@ -180,9 +186,9 @@ export default class Graphinator {
      * Fetches all super tokens.
      * @returns A promise that resolves to an array of super token addresses.
      */
-    private async _getSuperTokens(isListed: boolean): Promise<AddressLike[]> {
+    private async _getSuperTokens(isListed: boolean): Promise<any[]> { // changed AddressLike[] to any[] or string[] because I am using string now
         return (await this.dataFetcher.getSuperTokens(isListed))
-                .map(token => token.id);
+            .map(token => token.id.toLowerCase()); // Ensure lowercase
     }
 
     /**
