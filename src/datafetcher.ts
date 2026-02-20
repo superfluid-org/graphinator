@@ -32,9 +32,10 @@ class DataFetcher {
      * @param token - The address of the token.
      * @param gdaForwarder - The GDA forwarder contract.
      * @param depositConsumedPctThreshold - The deposit consumed percentage threshold.
+     * @param calculateMaxGasPrice - Optional callback to calculate max gas price for a flow (for logging).
      * @returns A promise that resolves to an array of Flow objects.
      */
-    async getFlowsToLiquidate(token: AddressLike, gdaForwarder: Contract, depositConsumedPctThreshold: number): Promise<Flow[]> {
+    async getFlowsToLiquidate(token: AddressLike, gdaForwarder: Contract, depositConsumedPctThreshold: number, calculateMaxGasPrice?: (flow: Flow) => number): Promise<Flow[]> {
 
         const returnData: Flow[] = [];
         const criticalAccounts = await this.getCriticalAccountsByTokenNow(token, process.env.LIQUIDATE_ALL ? false : true);
@@ -68,15 +69,19 @@ class DataFetcher {
 
                     const cfaFlows = await this.getOutgoingFlowsFromAccountByToken(account.token.id, account.account.id);
                     let processedCFAFlows = 0;
+                    const accountFlows: Flow[] = [];
                     for (const flow of cfaFlows) {
                         const data = flow.id.split("-");
-                        returnData.push({
+                        const flowObj: Flow = {
                             agreementType: AgreementType.CFA,
                             sender: data[0],
                             receiver: data[1],
                             token: data[2],
-                            flowrate: BigInt(flow.currentFlowRate)
-                        });
+                            flowrate: BigInt(flow.currentFlowRate),
+                            consumedDepositPercentage,
+                        };
+                        returnData.push(flowObj);
+                        accountFlows.push(flowObj);
                         netFlowRate += BigInt(flow.currentFlowRate);
                         processedCFAFlows++;
                         if (!process.env.LIQUIDATE_ALL && netFlowRate >= ZERO) {
@@ -89,13 +94,16 @@ class DataFetcher {
                     for (const flow of gdaFlows) {
                         const data = flow.id.split("-");
                         const pool = data[1];
-                        returnData.push({
+                        const flowObj: Flow = {
                             agreementType: AgreementType.GDA,
                             sender: account.account.id,
                             receiver: pool,
                             token: account.token.id,
-                            flowrate: BigInt(flow.pool.flowRate)
-                        });
+                            flowrate: BigInt(flow.pool.flowRate),
+                            consumedDepositPercentage,
+                        };
+                        returnData.push(flowObj);
+                        accountFlows.push(flowObj);
                         netFlowRate += BigInt(flow.pool.flowRate);
                         processedGDAFlows++;
                         if (!process.env.LIQUIDATE_ALL && netFlowRate >= BigInt(0)) {
@@ -103,7 +111,13 @@ class DataFetcher {
                         }
                     }
 
-                    log(`available balance ${availableBalance}, deposit ${deposit}, consumed deposit ${consumedDepositPercentage}%, flows to-be-liquidated/total: ${processedCFAFlows}/${cfaFlows.length} cfa | ${processedGDAFlows}/${gdaFlows.length} gda`);
+                    let thresholdLog = "";
+                    if (calculateMaxGasPrice && accountFlows.length > 0) {
+                        const largestFlow = accountFlows.reduce((a, b) => a.flowrate > b.flowrate ? a : b);
+                        const threshold = calculateMaxGasPrice(largestFlow);
+                        thresholdLog = `, applied gas limit: ${(threshold / 1e9).toFixed(2)} gwei`;
+                    }
+                    log(`available balance ${availableBalance}, deposit ${deposit}, consumed deposit ${consumedDepositPercentage}%${thresholdLog}, flows to-be-liquidated/total: ${processedCFAFlows}/${cfaFlows.length} cfa | ${processedGDAFlows}/${gdaFlows.length} gda`);
                     if (processedCFAFlows > 0 || processedGDAFlows > 0) {
                         continue;
                     } else {

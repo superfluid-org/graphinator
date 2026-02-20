@@ -20,7 +20,8 @@ export type Flow = {
     sender: AddressLike,
     receiver: AddressLike,
     token: AddressLike,
-    flowrate: bigint
+    flowrate: bigint,
+    consumedDepositPercentage?: number,
 };
 
 export type Token = {

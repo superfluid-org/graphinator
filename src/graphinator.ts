@@ -101,7 +101,12 @@ export default class Graphinator {
         }
         log(`Processing ${tokenAddrs.length} tokens, isListed: ${this.isListed ? "true" : "false"}`);
         for (const tokenAddr of tokenAddrs) {
-            const flowsToLiquidate = await this.dataFetcher.getFlowsToLiquidate(tokenAddr, this.gdaForwarder, this.depositConsumedPctThreshold);
+            const flowsToLiquidate = await this.dataFetcher.getFlowsToLiquidate(
+                tokenAddr,
+                this.gdaForwarder,
+                this.depositConsumedPctThreshold,
+                (flow) => this._calculateMaxGasPrice(flow)
+            );
             if (flowsToLiquidate.length > 0) {
                 log(`Found ${flowsToLiquidate.length} flows to liquidate`);
 
@@ -132,10 +137,16 @@ export default class Graphinator {
 
     /*
      * Calculate the max gas price we're willed to bid for liquidating this flow,
-     * taking into account the normalized (deniminated in the same unit of account) flowrate, the reference gas price limit
+     * taking into account the normalized (denominated in USD) flowrate, the reference gas price limit
      * (representing our limit for a normalized flowrate of 1 token per day)
      * amd the minimum gas price limit (which avoids dust flows to exist in perpetuity).
      * If the token price is not known, the fallback limit is returned.
+     * 
+     * The threshold increases over time since insolvency:
+     * - 100% increase after 1 day, 200% after 2 days, etc.
+     * - Capped at 10 days (1000% increase = 11x base threshold)
+     * - Time since insolvent is calculated from consumedDepositPercentage:
+     *   100% = just insolvent, 200% = 4 hours insolvent, etc.
      */
     _calculateMaxGasPrice(flow: Flow): number {
         const tokenPrice = this.tokenPrices[flow.token];
@@ -143,8 +154,21 @@ export default class Graphinator {
 
         const refDailyNFR = 1e18;
         const dailyNFR = tokenPrice ? Math.round(flowrate * 86400 * tokenPrice) : undefined;
-        const maxGasPrice = dailyNFR ? Math.max(this.minGasPriceLimit, Math.round(dailyNFR * this.referenceGasPriceLimit / refDailyNFR)) : this.fallbackGasPriceLimit;
-        return maxGasPrice;
+        const baseMaxGasPrice = dailyNFR ? Math.max(this.minGasPriceLimit, Math.round(dailyNFR * this.referenceGasPriceLimit / refDailyNFR)) : this.fallbackGasPriceLimit;
+        
+        // Calculate time-based multiplier from consumed deposit percentage
+        // 100% consumed = just became insolvent (0 hours)
+        // 200% consumed = 4 hours insolvent (liquidation period is 4 hours per deposit)
+        // days_since_insolvent = (consumedPct - 100) * 4 / (100 * 24)
+        let timeMultiplier = 1;
+        if (flow.consumedDepositPercentage && flow.consumedDepositPercentage > 100) {
+            const hoursSinceInsolvent = (flow.consumedDepositPercentage - 100) * 4 / 100;
+            const daysSinceInsolvent = hoursSinceInsolvent /24;
+            // 100% increase per day, capped at 10 days
+            timeMultiplier = 1 + Math.min(daysSinceInsolvent, 10);
+        }
+        
+        return Math.round(baseMaxGasPrice * timeMultiplier);
     }
 
     // Liquidate all flows in one batch transaction.
