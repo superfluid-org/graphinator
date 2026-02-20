@@ -149,7 +149,7 @@ export default class Graphinator {
      *   100% = just insolvent, 200% = 4 hours insolvent, etc.
      */
     _calculateMaxGasPrice(flow: Flow): number {
-        const tokenPrice = this.tokenPrices[flow.token];
+        const tokenPrice = this.tokenPrices[String(flow.token)];
         const flowrate = Number(flow.flowrate);
 
         const refDailyNFR = 1e18;
