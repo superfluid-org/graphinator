@@ -21,6 +21,7 @@ on:
           - optimism-mainnet
           - arbitrum-one
           - polygon-mainnet
+          - arc-mainnet
 
 jobs:
   run-graphinator:
